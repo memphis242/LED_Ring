@@ -169,6 +169,8 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
+    /* USER CODE BEGIN 3 */
+
     // Set example LED values to test...
     PixelData[0].pixel_struct.green = 0x37;   // 0011 0111
     PixelData[0].pixel_struct.red   = 0xAE;   // 1010 1110
@@ -185,7 +187,6 @@ int main(void)
 
     HAL_Delay(2000);
 
-    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
