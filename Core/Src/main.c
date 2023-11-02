@@ -21,16 +21,55 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdint.h>
+#include <limits.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+typedef uint8_t LEDSetpoint_T;  // Setpoint for a given LED is a value from 0 to 255, which is the same range as a byte
+
+struct Pixel_S
+{
+  LEDSetpoint_T green;
+  LEDSetpoint_T red;
+  LEDSetpoint_T blue;
+};
+
+union Pixel_U
+{
+  // TODO: Need to note whether the struct will take up the lower 3 bytes or the upper 3 bytes of this space...
+  struct Pixel_S pixel_struct;
+  uint32_t pixel_word;
+};
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define NUM_OF_PIXELS               1
+#define NUM_OF_BITS_PER_PIXEL       24
+
+#define ARR_SETPOINT                80  // ARR = Auto-Reload Register --> Register that sets the PWM frequency and is what effectively sets the reset point of the timer's counter
+// Duty cycle is set in the Capture/Compare Register (CRR) of a timer respective output channel, and is what effectively sets the point at which the PWM center edge occurs.
+#define DUTY_CYCLE_100_PCT          ARR_REGISTER_SETPOINT
+#define DUTY_CYCLE_0_PCT            0
+#define DUTY_CYCLE_ZERO_ENCODING    22  // 22 / 80 ~ 0.275 ==> 0.275 x 1,250ns = 343.8ns = 350ns - 6.2ns (which is within +/- 150ns spec)
+#define DUTY_CYCLE_ONE_ENCODING     45  // 45 / 80 ~ 0.560 ==> 0.560 x 1,250ns = 703.1ns = 700ns + 3.1ns (which is within +/- 150ns spec)
+#define DUTY_CYCLE_STOP_ENCODING    0   // Line needs to be low for at least 50us for the transmission to be interpreted as complete by the WS2812 module
+// Handle alias type to be used for duty cycle value
+#if ARR_SETPOINT <= UCHAR_MAX
+typedef uint8_t DutyCycle_T;
+#elif ARR_SETPOINT > UCHAR_MAX && ARR_SETPOINT < USHRT_MAX
+typedef uint16_t DutyCycle_T;
+#else
+typedef int DutyCycle_T;
+#endif
+
+#define LED_SETPOINT_MIN  0
+#define LED_SETPOINT_MAX  255
 
 /* USER CODE END PD */
 
@@ -53,7 +92,7 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-
+static union Pixel_U PixelData[ NUM_OF_PIXELS ];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,11 +105,22 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
-
+void WS2812_SinglePixel_Send(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/*!*****************************************************************
+* @fn HAL_TIM_PWM_PulseFinishedCallback
+* @brief Callback function that is called once the DMA has completed its transfer.
+* @param[in] PixelData array that contains the data for each pixel
+* @return void
+*******************************************************************/
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+{
+  HAL_TIM_PWM_Stop_DMA( htim, TIM_CHANNEL_1 );
+}
 
 /* USER CODE END 0 */
 
@@ -110,6 +160,7 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -117,6 +168,22 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+
+    // Set example LED values to test...
+    PixelData[0].pixel_struct.green = 0x37;   // 0011 0111
+    PixelData[0].pixel_struct.red   = 0xAE;   // 1010 1110
+    PixelData[0].pixel_struct.blue  = 0x06;   // 0000 0110
+    WS2812_SinglePixel_Send();
+
+    HAL_Delay(2000);
+
+    // Max brightness
+    PixelData[0].pixel_struct.green = 0xFF;
+    PixelData[0].pixel_struct.red   = 0xFF;
+    PixelData[0].pixel_struct.blue  = 0xFF;
+    WS2812_SinglePixel_Send();
+
+    HAL_Delay(2000);
 
     /* USER CODE BEGIN 3 */
   }
@@ -565,6 +632,53 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/*!*****************************************************************
+* @fn WS2812_SinglePixel_Send
+* @brief Sends a single pixel's worth of data out.
+* @param[in] PixelData array that contains the data for each pixel
+* @return void
+*******************************************************************/
+void WS2812_SinglePixel_Send(void)
+{
+  DutyCycle_T pwm_duty_cycle_data[ NUM_OF_PIXELS * NUM_OF_BITS_PER_PIXEL + 1 ];   // The last duty cycle will be zero to ensure line is off. TODO: Evaluate the proper way to set the line low (turn off timer? turn off output enable?)
+  uint32_t dma_buffer[ sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T) ] = {0};
+
+  // Set final duty cycle value
+  pwm_duty_cycle_data[ (sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T)) - 1 ] = DUTY_CYCLE_0_PCT;
+
+  // Iterate through each pixel's setpoint and populate the PWM duty cycle data accordingly
+  unsigned int duty_cycle_idx = 0;
+  for ( unsigned int pixel_idx = 0; pixel_idx < sizeof(PixelData)/sizeof(union Pixel_U); pixel_idx++ )
+  {
+    for ( uint8_t bit_idx = 0; bit_idx < NUM_OF_BITS_PER_PIXEL; bit_idx++ )
+    {
+      if ( (PixelData[pixel_idx].pixel_word & (0x000001 << bit_idx)) > 0 )
+      {
+        pwm_duty_cycle_data[duty_cycle_idx] = DUTY_CYCLE_ONE_ENCODING;
+      }
+      else
+      {
+        pwm_duty_cycle_data[duty_cycle_idx] = DUTY_CYCLE_ZERO_ENCODING;
+      }
+
+      duty_cycle_idx++;
+    }
+  }
+
+  // Following part is inefficient but in my head, I prefer to single out the DMA buffer from the data origin.
+  // Copy the data into the DMA buffer.
+  for ( unsigned int i = 0; i < sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T); i++ )
+  {
+    dma_buffer[i] = (uint32_t) pwm_duty_cycle_data[i];
+  }
+
+  // Send away to the timer peripheral!
+  if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer, sizeof(dma_buffer)/sizeof(uint32_t) ) != HAL_OK )
+  {
+    // TODO: Write a handler to indicate the DMA start request failed...
+  }
+}
 
 /* USER CODE END 4 */
 
