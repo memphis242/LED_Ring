@@ -679,6 +679,8 @@ void WS2812_SinglePixel_Send(void)
   {
     // TODO: Write a handler to indicate the DMA start request failed...
   }
+
+  HAL_Delay(10);
 }
 
 /* USER CODE END 4 */
