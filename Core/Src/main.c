@@ -23,6 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include <stdint.h>
 #include <limits.h>
+#include <stdbool.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -30,11 +32,12 @@
 
 typedef uint8_t LEDSetpoint_T;  // Setpoint for a given LED is a value from 0 to 255, which is the same range as a byte
 
+// For convenience of looping through the bits for the LEDs, I'll want to place the LSB first and MSB last (since ARM is little-endian)
 struct Pixel_S
 {
-  LEDSetpoint_T green;
+  LEDSetpoint_T blue;   // Will become LSB
   LEDSetpoint_T red;
-  LEDSetpoint_T blue;
+  LEDSetpoint_T green;  // Will become MSB
 };
 
 union Pixel_U
@@ -92,7 +95,10 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
+
 static union Pixel_U PixelData[ NUM_OF_PIXELS ];
+static volatile bool DMA_Transfer_Complete; // Flag to indicate a DMA transfer was completed. TODO: Remove this once you figure how to get around the wait after DMA transfer request...
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,6 +126,7 @@ void WS2812_SinglePixel_Send(void);
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
   HAL_TIM_PWM_Stop_DMA( htim, TIM_CHANNEL_1 );
+  DMA_Transfer_Complete = true;
 }
 
 /* USER CODE END 0 */
@@ -649,12 +656,14 @@ void WS2812_SinglePixel_Send(void)
   pwm_duty_cycle_data[ (sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T)) - 1 ] = DUTY_CYCLE_0_PCT;
 
   // Iterate through each pixel's setpoint and populate the PWM duty cycle data accordingly
+  // Remember to send the most-signficant bit of each LED's setpoint _first_.
+  // --> I accomplish this by having the pixel data organized MSB first and looping from MSb to LSb.
   unsigned int duty_cycle_idx = 0;
   for ( unsigned int pixel_idx = 0; pixel_idx < sizeof(PixelData)/sizeof(union Pixel_U); pixel_idx++ )
   {
-    for ( uint8_t bit_idx = 0; bit_idx < NUM_OF_BITS_PER_PIXEL; bit_idx++ )
+    for ( int8_t bit_idx = (NUM_OF_BITS_PER_PIXEL - 1); bit_idx >= 0 ; bit_idx-- )
     {
-      if ( (PixelData[pixel_idx].pixel_word & (0x000001 << bit_idx)) > 0 )
+      if ( ((PixelData[pixel_idx].pixel_word >> bit_idx) & 0x00000001u) > 0 )
       {
         pwm_duty_cycle_data[duty_cycle_idx] = DUTY_CYCLE_ONE_ENCODING;
       }
@@ -680,7 +689,10 @@ void WS2812_SinglePixel_Send(void)
     // TODO: Write a handler to indicate the DMA start request failed...
   }
 
-  HAL_Delay(10);
+  // For some reason, despite this defeating the whole purpose of the DMA, I have to wait otherwise the data gets corrupted...
+  // TODO: Figure out how to not have to do this!
+  while( DMA_Transfer_Complete == false );
+  DMA_Transfer_Complete = false;
 }
 
 /* USER CODE END 4 */
