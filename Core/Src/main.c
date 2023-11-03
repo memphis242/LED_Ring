@@ -24,36 +24,18 @@
 #include <stdint.h>
 #include <limits.h>
 #include <stdbool.h>
+#include "neopixel.h"
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-typedef uint8_t LEDSetpoint_T;  // Setpoint for a given LED is a value from 0 to 255, which is the same range as a byte
-
-// For convenience of looping through the bits for the LEDs, I'll want to place the LSB first and MSB last (since ARM is little-endian)
-struct Pixel_S
-{
-  LEDSetpoint_T blue;   // Will become LSB
-  LEDSetpoint_T red;
-  LEDSetpoint_T green;  // Will become MSB
-};
-
-union Pixel_U
-{
-  // TODO: Need to note whether the struct will take up the lower 3 bytes or the upper 3 bytes of this space...
-  struct Pixel_S pixel_struct;
-  uint32_t pixel_word;
-};
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
-#define NUM_OF_PIXELS               1
-#define NUM_OF_BITS_PER_PIXEL       24
 
 #define ARR_SETPOINT                80  // ARR = Auto-Reload Register --> Register that sets the PWM frequency and is what effectively sets the reset point of the timer's counter
 // Duty cycle is set in the Capture/Compare Register (CRR) of a timer respective output channel, and is what effectively sets the point at which the PWM center edge occurs.
@@ -70,9 +52,6 @@ typedef uint16_t DutyCycle_T;
 #else
 typedef int DutyCycle_T;
 #endif
-
-#define LED_SETPOINT_MIN  0
-#define LED_SETPOINT_MAX  255
 
 /* USER CODE END PD */
 
@@ -96,8 +75,11 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 
-static union Pixel_U PixelData[ NUM_OF_PIXELS ];
 static volatile bool DMA_Transfer_Complete; // Flag to indicate a DMA transfer was completed. TODO: Remove this once you figure how to get around the wait after DMA transfer request...
+
+/* External variables --------------------------------------------------------*/
+
+extern const struct LED_Strip_Frame_S LED_ANIMATION_TABLE[NUM_OF_FRAMES];
 
 /* USER CODE END PV */
 
@@ -111,7 +93,7 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
-void WS2812_SinglePixel_Send(void);
+void NeoPixel_Strip_Update(uint8_t);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -178,21 +160,12 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-    // Set example LED values to test...
-    PixelData[0].pixel_struct.green = 0x37;   // 0011 0111
-    PixelData[0].pixel_struct.red   = 0xAE;   // 1010 1110
-    PixelData[0].pixel_struct.blue  = 0x06;   // 0000 0110
-    WS2812_SinglePixel_Send();
-
-    HAL_Delay(2000);
-
-    // Max brightness
-    PixelData[0].pixel_struct.green = 0xFF;
-    PixelData[0].pixel_struct.red   = 0xFF;
-    PixelData[0].pixel_struct.blue  = 0xFF;
-    WS2812_SinglePixel_Send();
-
-    HAL_Delay(2000);
+    // Update the LED strip by going through the LED_ANIMATION_TABLE at 30 frames per second
+    for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
+    {
+      NeoPixel_Strip_Update(frame_idx);
+      HAL_Delay(31);  // 1s / 30 frames ~ 33.333ms, and it takes about 30us x 60 LEDs = 1.8ms to update a strip, so 33.333ms - 1.800ms = 31.466ms ~ 31ms (we'll be a little faster than 30fps)
+    }
 
   }
   /* USER CODE END 3 */
@@ -642,28 +615,37 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /*!*****************************************************************
-* @fn WS2812_SinglePixel_Send
+* @fn NeoPixel_Strip_Update
 * @brief Sends a single pixel's worth of data out.
-* @param[in] PixelData array that contains the data for each pixel
+* @param[in] frame uint8_t parameter that represent 
+* @param[in] LED_ANIMATION_TABLE data for each pixel for this frame
 * @return void
 *******************************************************************/
-void WS2812_SinglePixel_Send(void)
+void NeoPixel_Strip_Update(uint8_t frame)
 {
-  DutyCycle_T pwm_duty_cycle_data[ NUM_OF_PIXELS * NUM_OF_BITS_PER_PIXEL + 1 ];   // The last duty cycle will be zero to ensure line is off. TODO: Evaluate the proper way to set the line low (turn off timer? turn off output enable?)
+  DutyCycle_T pwm_duty_cycle_data[ NUM_OF_PIXELS_IN_STRIP * NUM_OF_BITS_PER_PIXEL + 1 ];
   uint32_t dma_buffer[ sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T) ] = {0};
 
-  // Set final duty cycle value
+  // Verify input parameter
+  if ( frame > (NUM_OF_FRAMES - 1) )
+  {
+    // TODO: Some assert
+    return; // Early return... TODO: Ensure single point of return in function!
+  }
+
+  // The last duty cycle will be set to zero to ensure line is off.
+  // TODO: Evaluate the proper way to set the line low (turn off timer? turn off output enable?)
   pwm_duty_cycle_data[ (sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T)) - 1 ] = DUTY_CYCLE_0_PCT;
 
   // Iterate through each pixel's setpoint and populate the PWM duty cycle data accordingly
   // Remember to send the most-signficant bit of each LED's setpoint _first_.
   // --> I accomplish this by having the pixel data organized MSB first and looping from MSb to LSb.
   unsigned int duty_cycle_idx = 0;
-  for ( unsigned int pixel_idx = 0; pixel_idx < sizeof(PixelData)/sizeof(union Pixel_U); pixel_idx++ )
+  for ( unsigned int pixel_idx = 0; pixel_idx < NUM_OF_PIXELS_IN_STRIP; pixel_idx++ )
   {
     for ( int8_t bit_idx = (NUM_OF_BITS_PER_PIXEL - 1); bit_idx >= 0 ; bit_idx-- )
     {
-      if ( ((PixelData[pixel_idx].pixel_word >> bit_idx) & 0x00000001u) > 0 )
+      if ( ((LED_ANIMATION_TABLE[frame].LEDs[pixel_idx].pixel_word >> bit_idx) & 0x00000001u) > 0 )
       {
         pwm_duty_cycle_data[duty_cycle_idx] = DUTY_CYCLE_ONE_ENCODING;
       }
