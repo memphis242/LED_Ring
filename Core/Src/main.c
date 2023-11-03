@@ -155,23 +155,25 @@ int main(void)
       {
         // NeoPixel_Strip_Update(frame_idx);
 
+        while( DMA_Transfer_Complete == false );  // wait for DMA transfer to complete before changing underlying buffer
+        DMA_Transfer_Complete = false;
         NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) );
         // Send away to the timer 2 and 3 peripherals
         if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) ) != HAL_OK )
         {
           // TODO: Write a handler to indicate the DMA start request failed...
         }
-        // For some reason, despite this defeating the whole purpose of the DMA, I have to wait otherwise the data gets corrupted...
-        // TODO: Figure out how to not have to do this!
-        while( DMA_Transfer_Complete == false );
-        DMA_Transfer_Complete = false;
+        // // For some reason, despite this defeating the whole purpose of the DMA, I have to wait otherwise the data gets corrupted...
+        // // TODO: Figure out how to not have to do this!
+        // while( DMA_Transfer_Complete == false );
+        // DMA_Transfer_Complete = false;
 
         if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) ) != HAL_OK )
         {
           // TODO: Write a handler to indicate the DMA start request failed...
         }
-        while( DMA_Transfer_Complete == false );
-        DMA_Transfer_Complete = false;
+        // while( DMA_Transfer_Complete == false );
+        // DMA_Transfer_Complete = false;
 
         HAL_Delay(30);  // 1s / 30 frames ~ 33.333ms, and it takes about 30us x 60 LEDs x 2 strips = 3.6ms to update the strips, so 33.333ms - 3.600ms = 29.733ms ~ 30ms
       }
@@ -182,8 +184,8 @@ int main(void)
       {
         // TODO: Write a handler to indicate the DMA start request failed...
       }
-      while( DMA_Transfer_Complete == false );
-      DMA_Transfer_Complete = false;
+      // while( DMA_Transfer_Complete == false );
+      // DMA_Transfer_Complete = false;
     }
 
   }
