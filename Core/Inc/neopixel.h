@@ -36,7 +36,7 @@
 #define LED_SETPOINT_MIN  0
 #define LED_SETPOINT_MAX  255
 
-#define ARR_SETPOINT                80  // ARR = Auto-Reload Register --> Register that sets the PWM frequency and is what effectively sets the reset point of the timer's counter
+#define ARR_SETPOINT                (80-1)  // ARR = Auto-Reload Register --> Register that sets the PWM frequency and is what effectively sets the reset point of the timer's counter
 // Duty cycle is set in the Capture/Compare Register (CRR) of a timer respective output channel, and is what effectively sets the point at which the PWM center edge occurs.
 #define DUTY_CYCLE_100_PCT          ARR_REGISTER_SETPOINT
 #define DUTY_CYCLE_0_PCT            0
