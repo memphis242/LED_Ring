@@ -37,21 +37,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define ARR_SETPOINT                80  // ARR = Auto-Reload Register --> Register that sets the PWM frequency and is what effectively sets the reset point of the timer's counter
-// Duty cycle is set in the Capture/Compare Register (CRR) of a timer respective output channel, and is what effectively sets the point at which the PWM center edge occurs.
-#define DUTY_CYCLE_100_PCT          ARR_REGISTER_SETPOINT
-#define DUTY_CYCLE_0_PCT            0
-#define DUTY_CYCLE_ZERO_ENCODING    22  // 22 / 80 ~ 0.275 ==> 0.275 x 1,250ns = 343.8ns = 350ns - 6.2ns (which is within +/- 150ns spec)
-#define DUTY_CYCLE_ONE_ENCODING     45  // 45 / 80 ~ 0.560 ==> 0.560 x 1,250ns = 703.1ns = 700ns + 3.1ns (which is within +/- 150ns spec)
-#define DUTY_CYCLE_STOP_ENCODING    0   // Line needs to be low for at least 50us for the transmission to be interpreted as complete by the WS2812 module
-// Handle alias type to be used for duty cycle value
-#if ARR_SETPOINT <= UCHAR_MAX
-typedef uint8_t DutyCycle_T;
-#elif ARR_SETPOINT > UCHAR_MAX && ARR_SETPOINT < USHRT_MAX
-typedef uint16_t DutyCycle_T;
-#else
-typedef int DutyCycle_T;
-#endif
+
 
 /* USER CODE END PD */
 
@@ -159,12 +145,45 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uint32_t dma_buffer_ring_strip[NUM_OF_PIXELS_IN_RING_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
+    uint32_t dma_buffer_pulse_strips[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
 
-    // Update the LED strip by going through the LED_ANIMATION_TABLE at 30 frames per second
-    for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
+    for ( uint8_t pulse_idx = 0; pulse_idx < NUM_OF_BRIGHTNESS_LEVELS; pulse_idx++ )
     {
-      NeoPixel_Strip_Update(frame_idx);
-      HAL_Delay(31);  // 1s / 30 frames ~ 33.333ms, and it takes about 30us x 60 LEDs = 1.8ms to update a strip, so 33.333ms - 1.800ms = 31.466ms ~ 31ms (we'll be a little faster than 30fps)
+      // Perform pulse animation
+      for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
+      {
+        // NeoPixel_Strip_Update(frame_idx);
+
+        NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) );
+        // Send away to the timer 2 and 3 peripherals
+        if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) ) != HAL_OK )
+        {
+          // TODO: Write a handler to indicate the DMA start request failed...
+        }
+        // For some reason, despite this defeating the whole purpose of the DMA, I have to wait otherwise the data gets corrupted...
+        // TODO: Figure out how to not have to do this!
+        while( DMA_Transfer_Complete == false );
+        DMA_Transfer_Complete = false;
+
+        if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) ) != HAL_OK )
+        {
+          // TODO: Write a handler to indicate the DMA start request failed...
+        }
+        while( DMA_Transfer_Complete == false );
+        DMA_Transfer_Complete = false;
+
+        HAL_Delay(30);  // 1s / 30 frames ~ 33.333ms, and it takes about 30us x 60 LEDs x 2 strips = 3.6ms to update the strips, so 33.333ms - 3.600ms = 29.733ms ~ 30ms
+      }
+
+      // Go to next brightness level with the ring strip
+      NeoPixel_RingStrip_FillBuffer( (enum RingBrightness_E) pulse_idx, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) );
+      if ( HAL_TIM_PWM_Start_DMA( &htim4, TIM_CHANNEL_1, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) ) != HAL_OK )
+      {
+        // TODO: Write a handler to indicate the DMA start request failed...
+      }
+      while( DMA_Transfer_Complete == false );
+      DMA_Transfer_Complete = false;
     }
 
   }
@@ -623,8 +642,8 @@ static void MX_GPIO_Init(void)
 *******************************************************************/
 void NeoPixel_Strip_Update(uint8_t frame)
 {
-  DutyCycle_T pwm_duty_cycle_data[ NUM_OF_PIXELS_IN_STRIP * NUM_OF_BITS_PER_PIXEL + 1 ];
-  uint32_t dma_buffer[ sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T) ] = {0};
+  uint8_t pwm_duty_cycle_data[ NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1 ];
+  uint32_t dma_buffer[ sizeof(pwm_duty_cycle_data)/sizeof(uint8_t) ] = {0};
 
   // Verify input parameter
   if ( frame > (NUM_OF_FRAMES - 1) )
@@ -635,13 +654,13 @@ void NeoPixel_Strip_Update(uint8_t frame)
 
   // The last duty cycle will be set to zero to ensure line is off.
   // TODO: Evaluate the proper way to set the line low (turn off timer? turn off output enable?)
-  pwm_duty_cycle_data[ (sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T)) - 1 ] = DUTY_CYCLE_0_PCT;
+  pwm_duty_cycle_data[ (sizeof(pwm_duty_cycle_data)/sizeof(uint8_t)) - 1 ] = DUTY_CYCLE_0_PCT;
 
   // Iterate through each pixel's setpoint and populate the PWM duty cycle data accordingly
   // Remember to send the most-signficant bit of each LED's setpoint _first_.
   // --> I accomplish this by having the pixel data organized MSB first and looping from MSb to LSb.
   unsigned int duty_cycle_idx = 0;
-  for ( unsigned int pixel_idx = 0; pixel_idx < NUM_OF_PIXELS_IN_STRIP; pixel_idx++ )
+  for ( unsigned int pixel_idx = 0; pixel_idx < NUM_OF_PIXELS_IN_PULSE_STRIP; pixel_idx++ )
   {
     for ( int8_t bit_idx = (NUM_OF_BITS_PER_PIXEL - 1); bit_idx >= 0 ; bit_idx-- )
     {
@@ -660,7 +679,7 @@ void NeoPixel_Strip_Update(uint8_t frame)
 
   // Following part is inefficient but in my head, I prefer to single out the DMA buffer from the data origin.
   // Copy the data into the DMA buffer.
-  for ( unsigned int i = 0; i < sizeof(pwm_duty_cycle_data)/sizeof(DutyCycle_T); i++ )
+  for ( unsigned int i = 0; i < sizeof(pwm_duty_cycle_data)/sizeof(uint8_t); i++ )
   {
     dma_buffer[i] = (uint32_t) pwm_duty_cycle_data[i];
   }

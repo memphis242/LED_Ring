@@ -22,10 +22,12 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Public define ------------------------------------------------------------*/
 
-#define NUM_OF_PIXELS_IN_STRIP              60
+#define NUM_OF_PIXELS_IN_PULSE_STRIP        60
+#define NUM_OF_PIXELS_IN_RING_STRIP         144
 #define NUM_OF_BITS_PER_PIXEL               24
 #define NUM_OF_FRAMES_PER_SECOND            30
 #define NUM_OF_SECONDS_OF_UNIQUE_ANIMATION  1
@@ -33,6 +35,14 @@
 
 #define LED_SETPOINT_MIN  0
 #define LED_SETPOINT_MAX  255
+
+#define ARR_SETPOINT                80  // ARR = Auto-Reload Register --> Register that sets the PWM frequency and is what effectively sets the reset point of the timer's counter
+// Duty cycle is set in the Capture/Compare Register (CRR) of a timer respective output channel, and is what effectively sets the point at which the PWM center edge occurs.
+#define DUTY_CYCLE_100_PCT          ARR_REGISTER_SETPOINT
+#define DUTY_CYCLE_0_PCT            0
+#define DUTY_CYCLE_ZERO_ENCODING    22  // 22 / 80 ~ 0.275 ==> 0.275 x 1,250ns = 343.8ns = 350ns - 6.2ns (which is within +/- 150ns spec)
+#define DUTY_CYCLE_ONE_ENCODING     45  // 45 / 80 ~ 0.560 ==> 0.560 x 1,250ns = 703.1ns = 700ns + 3.1ns (which is within +/- 150ns spec)
+#define DUTY_CYCLE_STOP_ENCODING    0   // Line needs to be low for at least 50us for the transmission to be interpreted as complete by the WS2812 module
 
 /* Public typedef -----------------------------------------------------------*/
 
@@ -55,7 +65,21 @@ union Pixel_U
 
 struct LED_Strip_Frame_S
 {
-    union Pixel_U LEDs[NUM_OF_PIXELS_IN_STRIP];
+    union Pixel_U LEDs[NUM_OF_PIXELS_IN_PULSE_STRIP];
+};
+
+enum RingBrightness_E
+{
+  BRIGHTNESS_OFF,
+  BRIGHTNESS_MIN,
+  BRIGHTNESS_LEVEL_1 = BRIGHTNESS_MIN,
+  BRIGHTNESS_LEVEL_2,
+  BRIGHTNESS_LEVEL_3,
+  BRIGHTNESS_MID = BRIGHTNESS_LEVEL_3,
+  BRIGHTNESS_LEVEL_4,
+  BRIGHTNESS_LEVEL_5,
+  BRIGHTNESS_MAX = BRIGHTNESS_LEVEL_5,
+  NUM_OF_BRIGHTNESS_LEVELS
 };
 
 /* Private macro -------------------------------------------------------------*/
@@ -66,10 +90,10 @@ struct LED_Strip_Frame_S
 
 
 
-/* Private function prototypes -----------------------------------------------*/
+/* Public function prototypes ------------------------------------------------*/
 
-
-
+bool NeoPixel_PulseStrips_FillBuffer(uint8_t frame, uint32_t * buffer, uint32_t length);
+bool NeoPixel_RingStrip_FillBuffer(enum RingBrightness_E brightness, uint32_t * buffer, uint32_t length);
 
 /* Private user code ---------------------------------------------------------*/
 
