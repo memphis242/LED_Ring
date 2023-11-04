@@ -31,6 +31,13 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+enum LEDStringState_E
+{
+  IDLE_ANIMATION,
+  PROPOSAL_ANIMATION,
+  VICTORY_ANIMATION,
+  NUM_OF_LED_STATEMAP_STATES
+}
 
 /* USER CODE END PTD */
 
@@ -62,6 +69,7 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 /* USER CODE BEGIN PV */
 
 static volatile bool DMA_Transfer_Complete; // Flag to indicate a DMA transfer was completed. TODO: Remove this once you figure how to get around the wait after DMA transfer request...
+static volatile bool ButtonPressed;
 
 /* External variables --------------------------------------------------------*/
 
@@ -97,6 +105,19 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
   DMA_Transfer_Complete = true;
 }
 
+/**
+  * @brief  EXTI line detection callback.
+  * @param  GPIO_Pin: Specifies the port pin connected to corresponding EXTI line.
+  * @retval None
+  */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if ( GPIO_Pin == B1_Pin )
+  {
+    ButtonPressed = true;
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -106,6 +127,11 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
+
+  static enum LEDStringState_E LEDStateMapState = IDLE_ANIMATION;
+  uint32_t dma_buffer_ring_strip[NUM_OF_PIXELS_IN_RING_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
+  uint32_t dma_buffer_pulse_right_strip[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
+  uint32_t dma_buffer_pulse_left_strip[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
 
   /* USER CODE END 1 */
 
@@ -145,17 +171,15 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint32_t dma_buffer_ring_strip[NUM_OF_PIXELS_IN_RING_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
-    uint32_t dma_buffer_pulse_strips[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
 
     for ( uint8_t pulse_idx = 0; pulse_idx < NUM_OF_BRIGHTNESS_LEVELS; pulse_idx++ )
     {
       // Perform pulse animation
       for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
       {
-        NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) );
+        NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) );
         // Send away to the timer 2 and 3 peripherals
-        if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) ) != HAL_OK )
+        if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) ) != HAL_OK )
         {
           // TODO: Write a handler to indicate the DMA start request failed...
         }
@@ -164,7 +188,7 @@ int main(void)
         while( DMA_Transfer_Complete == false );
         DMA_Transfer_Complete = false;
 
-        if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) ) != HAL_OK )
+        if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) ) != HAL_OK )
         {
           // TODO: Write a handler to indicate the DMA start request failed...
         }
@@ -624,6 +648,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
