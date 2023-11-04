@@ -37,14 +37,20 @@ enum LEDStringState_E
   PROPOSAL_ANIMATION,
   VICTORY_ANIMATION,
   NUM_OF_LED_STATEMAP_STATES
-}
+};
+
+struct GPIO_Port_Pin_S
+{
+  GPIO_TypeDef * port;
+  uint16_t pin;
+};
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-
+#define DEBOUNCE_WAIT_TIME  5 // ms
 
 /* USER CODE END PD */
 
@@ -129,6 +135,9 @@ int main(void)
   /* USER CODE BEGIN 1 */
 
   static enum LEDStringState_E LEDStateMapState = IDLE_ANIMATION;
+  static bool AnimationComplete = false;
+  static uint8_t LED_Idx = 0;
+  static bool StateUpdated = false;
   uint32_t dma_buffer_ring_strip[NUM_OF_PIXELS_IN_RING_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
   uint32_t dma_buffer_pulse_right_strip[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
   uint32_t dma_buffer_pulse_left_strip[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
@@ -168,44 +177,150 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    // Declarations and definitions for LED selection
+    static const struct GPIO_Port_Pin_S LED_OPTIONS_TABLE[] =
+    {
+      { LD1_GPIO_Port,  LD1_Pin },
+      { LD2_GPIO_Port,  LD2_Pin },
+      { LD3_GPIO_Port,  LD3_Pin },
+    };
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 
-    for ( uint8_t pulse_idx = 0; pulse_idx < NUM_OF_BRIGHTNESS_LEVELS; pulse_idx++ )
+    switch( LEDStateMapState )
     {
-      // Perform pulse animation
-      for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
-      {
-        NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) );
-        // Send away to the timer 2 and 3 peripherals
-        if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) ) != HAL_OK )
+      case IDLE_ANIMATION:
+
+        break;
+
+      case PROPOSAL_ANIMATION:
+
+        // Process button press, if applicable
+        if ( ButtonPressed == true )
         {
-          // TODO: Write a handler to indicate the DMA start request failed...
-        }
-        // For some reason, despite this defeating the whole purpose of the DMA, I have to wait otherwise the data gets corrupted...
-        // TODO: Figure out how to not have to do this!
-        while( DMA_Transfer_Complete == false );
-        DMA_Transfer_Complete = false;
+          if ( AnimationComplete == false )
+          {
+            // Hold off on transitioning
+          }
+          else
+          {
+            LEDStateMapState = VICTORY_ANIMATION; // Next loop will transition to next state
+            ButtonPressed = false;
+            HAL_Delay( DEBOUNCE_WAIT_TIME );  // TODO: Handle debounces without a delay...
 
-        if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) ) != HAL_OK )
+            // For debug purposes, drive one of the board LEDs to indicate state
+            HAL_GPIO_WritePin( LED_OPTIONS_TABLE[LED_Idx].port, LED_OPTIONS_TABLE[LED_Idx].pin, GPIO_PIN_RESET );
+            LED_Idx++;
+            // Wrap-around if past table bounds
+            if ( LED_Idx >= (sizeof(LED_OPTIONS_TABLE) / sizeof(struct GPIO_Port_Pin_S)) )
+            {
+              LED_Idx = 0;
+            }
+            HAL_GPIO_WritePin( LED_OPTIONS_TABLE[LED_Idx].port, LED_OPTIONS_TABLE[LED_Idx].pin, GPIO_PIN_SET );
+          }
+
+        }
+
+        // Animate!
+        if ( AnimationComplete == false )
         {
-          // TODO: Write a handler to indicate the DMA start request failed...
+
+          for ( uint8_t pulse_idx = 1; pulse_idx < (NUM_OF_BRIGHTNESS_LEVELS - 1); pulse_idx++ )
+          {
+            // Perform pulse animation
+
+            // Pulse one strip
+            for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
+            {
+              NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) );
+              // Send away to the timer 2
+              if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) ) != HAL_OK )
+              {
+                // TODO: Write a handler to indicate the DMA start request failed...
+              }
+              // For some reason, despite this defeating the whole purpose of the DMA, I have to wait otherwise the data gets corrupted...
+              // TODO: Figure out how to not have to do this!
+              while( DMA_Transfer_Complete == false );
+              DMA_Transfer_Complete = false;
+
+              HAL_Delay(15);  // REDO COMMENT: 1s / 30 frames ~ 33.333ms, and it takes about 30us x 60 LEDs x 2 strips = 3.6ms to update the strips, so 33.333ms - 3.600ms = 29.733ms ~ 30ms
+            }
+
+            // Go to next brightness level with the ring strip
+            NeoPixel_RingStrip_FillBuffer( (enum RingBrightness_E) pulse_idx, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) );
+            if ( HAL_TIM_PWM_Start_DMA( &htim4, TIM_CHANNEL_1, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) ) != HAL_OK )
+            {
+              // TODO: Write a handler to indicate the DMA start request failed...
+            }
+            while( DMA_Transfer_Complete == false );
+            DMA_Transfer_Complete = false;
+            pulse_idx++;
+
+            // Pulse the other strip
+            for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
+            {
+              NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) );
+
+              // Send away to the timer 3
+              if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) ) != HAL_OK )
+              {
+                // TODO: Write a handler to indicate the DMA start request failed...
+              }
+              while( DMA_Transfer_Complete == false );
+              DMA_Transfer_Complete = false;
+
+              HAL_Delay(15);  // REDO COMMENT: 1s / 30 frames ~ 33.333ms, and it takes about 30us x 60 LEDs x 2 strips = 3.6ms to update the strips, so 33.333ms - 3.600ms = 29.733ms ~ 30ms
+            }
+
+            // Go to next brightness level with the ring strip
+            NeoPixel_RingStrip_FillBuffer( (enum RingBrightness_E) pulse_idx, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) );
+            if ( HAL_TIM_PWM_Start_DMA( &htim4, TIM_CHANNEL_1, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) ) != HAL_OK )
+            {
+              // TODO: Write a handler to indicate the DMA start request failed...
+            }
+            while( DMA_Transfer_Complete == false );
+            DMA_Transfer_Complete = false;
+
+          }
+
+          AnimationComplete = true;
+
         }
-        while( DMA_Transfer_Complete == false );
-        DMA_Transfer_Complete = false;
+        else
+        {
+          // Do nothing. Hold at last animation frame!
+          // TODO: Pulse the ring?
+        }
 
-        HAL_Delay(30);  // 1s / 30 frames ~ 33.333ms, and it takes about 30us x 60 LEDs x 2 strips = 3.6ms to update the strips, so 33.333ms - 3.600ms = 29.733ms ~ 30ms
-      }
+        break;
 
-      // Go to next brightness level with the ring strip
-      NeoPixel_RingStrip_FillBuffer( (enum RingBrightness_E) pulse_idx, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) );
-      if ( HAL_TIM_PWM_Start_DMA( &htim4, TIM_CHANNEL_1, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) ) != HAL_OK )
-      {
-        // TODO: Write a handler to indicate the DMA start request failed...
-      }
-      while( DMA_Transfer_Complete == false );
-      DMA_Transfer_Complete = false;
+      case VICTORY_ANIMATION:
+
+        // Process button press, if applicable
+        if ( ButtonPressed == true )
+        {
+
+          AnimationComplete = false;
+          LEDStateMapState = IDLE_ANIMATION; // Next loop will transition to next state
+          ButtonPressed = false;
+          HAL_Delay( DEBOUNCE_WAIT_TIME );  // TODO: Handle debounces without a delay...
+
+          // For debug purposes, drive one of the board LEDs to indicate state
+          HAL_GPIO_WritePin( LED_OPTIONS_TABLE[LED_Idx].port, LED_OPTIONS_TABLE[LED_Idx].pin, GPIO_PIN_RESET );
+          LED_Idx++;
+          // Wrap-around if past table bounds
+          if ( LED_Idx >= (sizeof(LED_OPTIONS_TABLE) / sizeof(struct GPIO_Port_Pin_S)) )
+          {
+            LED_Idx = 0;
+          }
+          HAL_GPIO_WritePin( LED_OPTIONS_TABLE[LED_Idx].port, LED_OPTIONS_TABLE[LED_Idx].pin, GPIO_PIN_SET );
+
+        }
+
+        break;
+
     }
 
   }
