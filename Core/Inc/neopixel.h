@@ -27,7 +27,7 @@
 /* Public define ------------------------------------------------------------*/
 
 #define NUM_OF_PIXELS_IN_PULSE_STRIP        60
-#define NUM_OF_PIXELS_IN_RING_STRIP         144
+#define NUM_OF_PIXELS_IN_RING_STRIP         100
 #define NUM_OF_BITS_PER_PIXEL               24
 #define NUM_OF_FRAMES_PER_SECOND            30
 #define NUM_OF_SECONDS_OF_UNIQUE_ANIMATION  1

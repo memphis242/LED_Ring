@@ -70,8 +70,6 @@ DMA_HandleTypeDef hdma_tim4_ch1;
 
 UART_HandleTypeDef huart3;
 
-PCD_HandleTypeDef hpcd_USB_OTG_FS;
-
 /* USER CODE BEGIN PV */
 
 static volatile bool DMA_Transfer_Complete; // Flag to indicate a DMA transfer was completed. TODO: Remove this once you figure how to get around the wait after DMA transfer request...
@@ -88,7 +86,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_USART3_UART_Init(void);
-static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
@@ -139,8 +136,15 @@ int main(void)
   static uint8_t LED_Idx = 0;
   static bool StateUpdated = false;
   uint32_t dma_buffer_ring_strip[NUM_OF_PIXELS_IN_RING_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
-  uint32_t dma_buffer_pulse_right_strip[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
-  uint32_t dma_buffer_pulse_left_strip[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
+  uint32_t dma_buffer_pulse_strip[NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1];
+
+  // Declarations and definitions for LED selection
+  static const struct GPIO_Port_Pin_S LED_OPTIONS_TABLE[] =
+  {
+    { LD1_GPIO_Port,  LD1_Pin },
+    { LD2_GPIO_Port,  LD2_Pin },
+    { LD3_GPIO_Port,  LD3_Pin },
+  };
 
   /* USER CODE END 1 */
 
@@ -164,7 +168,6 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART3_UART_Init();
-  MX_USB_OTG_FS_PCD_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
@@ -175,15 +178,10 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  HAL_GPIO_WritePin( LED_OPTIONS_TABLE[LED_Idx].port, LED_OPTIONS_TABLE[LED_Idx].pin, GPIO_PIN_SET );
+
   while (1)
   {
-    // Declarations and definitions for LED selection
-    static const struct GPIO_Port_Pin_S LED_OPTIONS_TABLE[] =
-    {
-      { LD1_GPIO_Port,  LD1_Pin },
-      { LD2_GPIO_Port,  LD2_Pin },
-      { LD3_GPIO_Port,  LD3_Pin },
-    };
 
     /* USER CODE END WHILE */
 
@@ -192,6 +190,26 @@ int main(void)
     switch( LEDStateMapState )
     {
       case IDLE_ANIMATION:
+        // Process button press, if applicable
+        if ( ButtonPressed == true )
+        {
+
+          AnimationComplete = false;
+          LEDStateMapState = PROPOSAL_ANIMATION; // Next loop will transition to next state
+          ButtonPressed = false;
+          HAL_Delay( DEBOUNCE_WAIT_TIME );  // TODO: Handle debounces without a delay...
+
+          // For debug purposes, drive one of the board LEDs to indicate state
+          HAL_GPIO_WritePin( LED_OPTIONS_TABLE[LED_Idx].port, LED_OPTIONS_TABLE[LED_Idx].pin, GPIO_PIN_RESET );
+          LED_Idx++;
+          // Wrap-around if past table bounds
+          if ( LED_Idx >= (sizeof(LED_OPTIONS_TABLE) / sizeof(struct GPIO_Port_Pin_S)) )
+          {
+            LED_Idx = 0;
+          }
+          HAL_GPIO_WritePin( LED_OPTIONS_TABLE[LED_Idx].port, LED_OPTIONS_TABLE[LED_Idx].pin, GPIO_PIN_SET );
+
+        }
 
         break;
 
@@ -234,9 +252,9 @@ int main(void)
             // Pulse one strip
             for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
             {
-              NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) );
+              NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_strip, sizeof(dma_buffer_pulse_strip)/sizeof(uint32_t) );
               // Send away to the timer 2
-              if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) ) != HAL_OK )
+              if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_strip, sizeof(dma_buffer_pulse_strip)/sizeof(uint32_t) ) != HAL_OK )
               {
                 // TODO: Write a handler to indicate the DMA start request failed...
               }
@@ -261,10 +279,10 @@ int main(void)
             // Pulse the other strip
             for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
             {
-              NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) );
+              NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_strip, sizeof(dma_buffer_pulse_strip)/sizeof(uint32_t) );
 
               // Send away to the timer 3
-              if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_right_strip, sizeof(dma_buffer_pulse_right_strip)/sizeof(uint32_t) ) != HAL_OK )
+              if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_strip, sizeof(dma_buffer_pulse_strip)/sizeof(uint32_t) ) != HAL_OK )
               {
                 // TODO: Write a handler to indicate the DMA start request failed...
               }
@@ -349,20 +367,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 1;
-  RCC_OscInitStruct.PLL.PLLN = 24;
-  RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
-  RCC_OscInitStruct.PLL.PLLR = 2;
-  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
-  RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
-  RCC_OscInitStruct.PLL.PLLFRACN = 0;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -613,42 +621,6 @@ static void MX_USART3_UART_Init(void)
 }
 
 /**
-  * @brief USB_OTG_FS Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USB_OTG_FS_PCD_Init(void)
-{
-
-  /* USER CODE BEGIN USB_OTG_FS_Init 0 */
-
-  /* USER CODE END USB_OTG_FS_Init 0 */
-
-  /* USER CODE BEGIN USB_OTG_FS_Init 1 */
-
-  /* USER CODE END USB_OTG_FS_Init 1 */
-  hpcd_USB_OTG_FS.Instance = USB_OTG_FS;
-  hpcd_USB_OTG_FS.Init.dev_endpoints = 9;
-  hpcd_USB_OTG_FS.Init.speed = PCD_SPEED_FULL;
-  hpcd_USB_OTG_FS.Init.dma_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
-  hpcd_USB_OTG_FS.Init.Sof_enable = ENABLE;
-  hpcd_USB_OTG_FS.Init.low_power_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.lpm_enable = DISABLE;
-  hpcd_USB_OTG_FS.Init.battery_charging_enable = ENABLE;
-  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = ENABLE;
-  hpcd_USB_OTG_FS.Init.use_dedicated_ep1 = DISABLE;
-  if (HAL_PCD_Init(&hpcd_USB_OTG_FS) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USB_OTG_FS_Init 2 */
-
-  /* USER CODE END USB_OTG_FS_Init 2 */
-
-}
-
-/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -701,7 +673,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
@@ -749,6 +721,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(USB_OTG_FS_OVCR_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PA8 PA11 PA12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_11|GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF10_OTG1_FS;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /*Configure GPIO pins : PG11 PG13 */
   GPIO_InitStruct.Pin = GPIO_PIN_11|GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -765,8 +745,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
