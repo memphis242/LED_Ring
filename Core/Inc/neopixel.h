@@ -98,7 +98,12 @@ enum RingBrightness_E
 /* Public function prototypes ------------------------------------------------*/
 
 bool NeoPixel_PulseStrips_FillBuffer(uint8_t frame, uint32_t * buffer, uint32_t length);
+
 bool NeoPixel_RingStrip_FillBuffer(enum RingBrightness_E brightness, uint32_t * buffer, uint32_t length);
+
+bool NeoPixel_RingStrip_AllOff_FillBuffer(uint32_t * buffer, uint32_t length);
+
+bool NeoPixel_PulseStrips_AllOff_FillBuffer(uint32_t * buffer, uint32_t length);
 
 /* Private user code ---------------------------------------------------------*/
 

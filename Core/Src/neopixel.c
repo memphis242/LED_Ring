@@ -2308,5 +2308,81 @@ bool NeoPixel_RingStrip_FillBuffer(enum RingBrightness_E brightness, uint32_t * 
 }
 
 
+bool NeoPixel_RingStrip_AllOff_FillBuffer(uint32_t * buffer, uint32_t length)
+{
+  bool retVal = true;
+
+  // Verify input parameters
+  if ( buffer == NULL ||
+       length != (NUM_OF_PIXELS_IN_RING_STRIP * NUM_OF_BITS_PER_PIXEL + 1) )
+  {
+    // TODO: Some assert
+    retVal = false;
+  }
+
+  else
+  {
+    // The last duty cycle will be set to zero to ensure line is off.
+    // TODO: Evaluate the proper way to set the line low (turn off timer? turn off output enable?)
+    buffer[length - 1] = DUTY_CYCLE_0_PCT;
+
+    // Iterate through each pixel's setpoint and populate the PWM duty cycle data accordingly
+    // Remember to send the most-signficant bit of each LED's setpoint _first_.
+    // --> I accomplish this by having the pixel data organized MSB first and looping from MSb to LSb.
+    unsigned int duty_cycle_idx = 0;
+    for ( unsigned int pixel_idx = 0; pixel_idx < NUM_OF_PIXELS_IN_RING_STRIP; pixel_idx++ )
+    {
+      for ( int8_t bit_idx = (NUM_OF_BITS_PER_PIXEL - 1); bit_idx >= 0 ; bit_idx-- )
+      {
+        buffer[duty_cycle_idx] = DUTY_CYCLE_ZERO_ENCODING;
+        duty_cycle_idx++;
+      }
+    }
+
+  }
+
+  return retVal;
+}
+
+
+bool NeoPixel_PulseStrips_AllOff_FillBuffer(uint32_t * buffer, uint32_t length)
+{
+  bool retVal = true;
+
+  // Verify input parameters
+  if ( buffer == NULL ||
+       length != (NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1) )
+  {
+    // TODO: Some assert
+    retVal = false;
+  }
+
+  else
+  {
+    // The last duty cycle will be set to zero to ensure line is off.
+    // TODO: Evaluate the proper way to set the line low (turn off timer? turn off output enable?)
+    buffer[length - 1] = DUTY_CYCLE_0_PCT;
+
+    // Iterate through each pixel's setpoint and populate the PWM duty cycle data accordingly
+    // Remember to send the most-signficant bit of each LED's setpoint _first_.
+    // --> I accomplish this by having the pixel data organized MSB first and looping from MSb to LSb.
+    unsigned int duty_cycle_idx = 0;
+    for ( unsigned int pixel_idx = 0; pixel_idx < NUM_OF_PIXELS_IN_PULSE_STRIP; pixel_idx++ )
+    {
+      for ( int8_t bit_idx = (NUM_OF_BITS_PER_PIXEL - 1); bit_idx >= 0 ; bit_idx-- )
+      {
+        buffer[duty_cycle_idx] = DUTY_CYCLE_ZERO_ENCODING;
+        duty_cycle_idx++;
+      }
+    }
+
+  }
+
+  return retVal;
+}
+
+
+
+
 /* Private function definitions ----------------------------------------------*/
 

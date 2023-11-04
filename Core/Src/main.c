@@ -190,10 +190,42 @@ int main(void)
     switch( LEDStateMapState )
     {
       case IDLE_ANIMATION:
+        StateUpdated = false;
+
+        NeoPixel_RingStrip_AllOff_FillBuffer(dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t));
+        NeoPixel_PulseStrips_AllOff_FillBuffer(dma_buffer_pulse_strip, sizeof(dma_buffer_pulse_strip)/sizeof(uint32_t));
+
+        // Send away to timer 4
+        if ( HAL_TIM_PWM_Start_DMA( &htim4, TIM_CHANNEL_1, dma_buffer_ring_strip, sizeof(dma_buffer_ring_strip)/sizeof(uint32_t) ) != HAL_OK )
+        {
+          // TODO: Write a handler to indicate the DMA start request failed...
+        }
+        while( DMA_Transfer_Complete == false );
+        DMA_Transfer_Complete = false;
+
+        // Send away to the timer 2
+        if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_strip, sizeof(dma_buffer_pulse_strip)/sizeof(uint32_t) ) != HAL_OK )
+        {
+          // TODO: Write a handler to indicate the DMA start request failed...
+        }
+        // For some reason, despite this defeating the whole purpose of the DMA, I have to wait otherwise the data gets corrupted...
+        // TODO: Figure out how to not have to do this!
+        while( DMA_Transfer_Complete == false );
+        DMA_Transfer_Complete = false;
+
+        // Send away to the timer 3
+        if ( HAL_TIM_PWM_Start_DMA( &htim3, TIM_CHANNEL_1, dma_buffer_pulse_strip, sizeof(dma_buffer_pulse_strip)/sizeof(uint32_t) ) != HAL_OK )
+        {
+          // TODO: Write a handler to indicate the DMA start request failed...
+        }
+        while( DMA_Transfer_Complete == false );
+        DMA_Transfer_Complete = false;
+
+
         // Process button press, if applicable
         if ( ButtonPressed == true )
         {
-
+          StateUpdated = true;
           AnimationComplete = false;
           LEDStateMapState = PROPOSAL_ANIMATION; // Next loop will transition to next state
           ButtonPressed = false;
