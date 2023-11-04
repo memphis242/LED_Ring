@@ -2166,19 +2166,24 @@ const struct LED_Strip_Frame_S LED_ANIMATION_TABLE[NUM_OF_FRAMES] =
 
 /*----------------------------------------------------------------------------------------------------
  * Brightness follows the curve:
- *      B[n] = 10 x exp( 0.684 x n )
+ *      B[n] = 10 x exp( 0.35985316135159782913639419259305 x n )
  * an exponential curve which is hopefully
  * perceived as a linear increase in brightness (a linearly increasing command does not get perceived
  * as an even, linear increased in brightness).
 ------------------------------------------------------------------------------------------------------*/
 const uint32_t LED_BRIGHTNESS_TABLE[NUM_OF_BRIGHTNESS_LEVELS] =
 {
-  0,    // BRIGHTNESS_OFF
-  19,   // BRIGHTNESS_MIN / LEVEL 1
-  37,   // BRIGHTNESS_LEVEL_2
-  70,   // BRIGHTNESS_MID / LEVEL 3
-  134,  // BRIGHTNESS_LEVEL_4
-  255,  // BRIGHTNESS_MAX / LEVEL_5
+  0,    // BRIGHTNESS_OFF,
+  10,   // BRIGHTNESS_MIN / LEVEL 1
+  14,   // BRIGHTNESS_LEVEL_2,
+  21,   // BRIGHTNESS_LEVEL_3,
+  29,   // BRIGHTNESS_LEVEL_4,
+  42,   // BRIGHTNESS_LEVEL_5 / MID
+  60,   // BRIGHTNESS_LEVEL_6,
+  87,   // BRIGHTNESS_LEVEL_7,
+  124,  // BRIGHTNESS_LEVEL_8,
+  178,  // BRIGHTNESS_LEVEL_9,
+  255,  // BRIGHTNESS_LEVEL_10 / MAX
 };
 
 /* Private variables ---------------------------------------------------------*/
