@@ -79,7 +79,7 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
-void NeoPixel_Strip_Update(uint8_t);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -153,8 +153,6 @@ int main(void)
       // Perform pulse animation
       for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
       {
-        // NeoPixel_Strip_Update(frame_idx);
-
         NeoPixel_PulseStrips_FillBuffer( frame_idx, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) );
         // Send away to the timer 2 and 3 peripherals
         if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer_pulse_strips, sizeof(dma_buffer_pulse_strips)/sizeof(uint32_t) ) != HAL_OK )
@@ -632,69 +630,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-/*!*****************************************************************
-* @fn NeoPixel_Strip_Update
-* @brief Sends a single pixel's worth of data out.
-* @param[in] frame uint8_t parameter that represent 
-* @param[in] LED_ANIMATION_TABLE data for each pixel for this frame
-* @return void
-*******************************************************************/
-void NeoPixel_Strip_Update(uint8_t frame)
-{
-  uint8_t pwm_duty_cycle_data[ NUM_OF_PIXELS_IN_PULSE_STRIP * NUM_OF_BITS_PER_PIXEL + 1 ];
-  uint32_t dma_buffer[ sizeof(pwm_duty_cycle_data)/sizeof(uint8_t) ] = {0};
-
-  // Verify input parameter
-  if ( frame > (NUM_OF_FRAMES - 1) )
-  {
-    // TODO: Some assert
-    return; // Early return... TODO: Ensure single point of return in function!
-  }
-
-  // The last duty cycle will be set to zero to ensure line is off.
-  // TODO: Evaluate the proper way to set the line low (turn off timer? turn off output enable?)
-  pwm_duty_cycle_data[ (sizeof(pwm_duty_cycle_data)/sizeof(uint8_t)) - 1 ] = DUTY_CYCLE_0_PCT;
-
-  // Iterate through each pixel's setpoint and populate the PWM duty cycle data accordingly
-  // Remember to send the most-signficant bit of each LED's setpoint _first_.
-  // --> I accomplish this by having the pixel data organized MSB first and looping from MSb to LSb.
-  unsigned int duty_cycle_idx = 0;
-  for ( unsigned int pixel_idx = 0; pixel_idx < NUM_OF_PIXELS_IN_PULSE_STRIP; pixel_idx++ )
-  {
-    for ( int8_t bit_idx = (NUM_OF_BITS_PER_PIXEL - 1); bit_idx >= 0 ; bit_idx-- )
-    {
-      if ( ((LED_ANIMATION_TABLE[frame].LEDs[pixel_idx].pixel_word >> bit_idx) & 0x00000001u) > 0 )
-      {
-        pwm_duty_cycle_data[duty_cycle_idx] = DUTY_CYCLE_ONE_ENCODING;
-      }
-      else
-      {
-        pwm_duty_cycle_data[duty_cycle_idx] = DUTY_CYCLE_ZERO_ENCODING;
-      }
-
-      duty_cycle_idx++;
-    }
-  }
-
-  // Following part is inefficient but in my head, I prefer to single out the DMA buffer from the data origin.
-  // Copy the data into the DMA buffer.
-  for ( unsigned int i = 0; i < sizeof(pwm_duty_cycle_data)/sizeof(uint8_t); i++ )
-  {
-    dma_buffer[i] = (uint32_t) pwm_duty_cycle_data[i];
-  }
-
-  // Send away to the timer peripheral!
-  if ( HAL_TIM_PWM_Start_DMA( &htim2, TIM_CHANNEL_1, dma_buffer, sizeof(dma_buffer)/sizeof(uint32_t) ) != HAL_OK )
-  {
-    // TODO: Write a handler to indicate the DMA start request failed...
-  }
-
-  // For some reason, despite this defeating the whole purpose of the DMA, I have to wait otherwise the data gets corrupted...
-  // TODO: Figure out how to not have to do this!
-  while( DMA_Transfer_Complete == false );
-  DMA_Transfer_Complete = false;
-}
 
 /* USER CODE END 4 */
 
