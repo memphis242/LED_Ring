@@ -281,6 +281,11 @@ int main(void)
           {
             // Perform pulse animation
 
+            if ( pulse_idx == 1 )
+            {
+              HAL_Delay(2000);  // Wait two seconds after button press essentially...
+            }
+
             // Pulse one strip
             for ( uint8_t frame_idx = 0; frame_idx < NUM_OF_FRAMES; frame_idx++ )
             {
@@ -336,8 +341,8 @@ int main(void)
           }
 
           AnimationComplete = true;
-
         }
+
         else
         {
           // Do nothing. Hold at last animation frame!
